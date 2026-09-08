@@ -913,7 +913,7 @@
           <section class="pad" style="margin-bottom: 8px;">
             <div class="row" style="overflow-x: auto; padding-bottom: 4px;">
               <span class="tag active" data-remtab="drug">药品效期</span>
-              <span class="tag" data-remtab="food">食品保质期</span>
+              <span class="tag" data-remtab="food">食品质期</span>
               <span class="tag" data-remtab="appliance">家电保修</span>
               <span class="tag" data-remtab="expiry">效期总览</span>
               <span class="tag" data-remtab="byloc">按位置</span>
@@ -1241,8 +1241,9 @@
 
             <div class="field">
               <label for="f-loc">存放位置</label>
-              <select class="input editable" id="f-loc"></select>
-              <div class="hint">从下拉列表选择存放位置</div>
+              <input class="input editable" id="f-loc" placeholder="可手输，或点下方按钮按房间选择">
+              <button type="button" data-locpick="f-loc" style="display:block;width:100%;margin-top:6px;padding:9px 0;border:1px dashed #1f6f5c;border-radius:9px;background:#f4f8f5;color:#155244;font-size:13.5px;font-weight:600;cursor:pointer;text-align:center;">按房间展开选择位置（点房间名展开下层）</button>
+              <div class="hint">可手输，或点下方按钮按房间层级选择</div>
             </div>
 
             <div class="grid-2">
@@ -1420,7 +1421,8 @@
             </div>
             <div class="field">
               <label for="ed-loc">存放位置</label>
-              <select class="input editable" id="ed-loc"></select>
+              <input class="input editable" id="ed-loc" placeholder="可手输，或点下方按钮按房间选择">
+              <button type="button" data-locpick="ed-loc" style="display:block;width:100%;margin-top:6px;padding:9px 0;border:1px dashed #1f6f5c;border-radius:9px;background:#f4f8f5;color:#155244;font-size:13.5px;font-weight:600;cursor:pointer;text-align:center;">按房间展开选择位置（点房间名展开下层）</button>
             </div>
             <div class="grid-2">
               <div class="field">
@@ -4421,7 +4423,7 @@
     if (!d) d = ITEM_DETAILS[_viewingItem] || ITEM_DETAILS['布洛芬缓释胶囊'];
     var f = document.getElementById('ed-name'); if (f) f.textContent = _viewingItem;
     var fcat = document.getElementById('ed-cat'); if (fcat) fcat.value = normalizeCat(itemCategory(d));
-    var floc = document.getElementById('ed-loc'); if (floc) floc.innerHTML = locOptionsHtml(d.loc);
+    var floc = document.getElementById('ed-loc'); if (floc && floc.tagName === 'SELECT') { floc.innerHTML = locOptionsHtml(d.loc); } else if (floc) { floc.value = d.loc || ''; } // V2.3.9：位置字段已升级为级联输入框，直接回填当前值
     var fq = document.getElementById('ed-qty'); if (fq) fq.textContent = d.qty || '1';
     var ft = document.getElementById('ed-tags'); if (ft) ft.textContent = d.tags ? d.tags.replace(/<[^>]*>/g, '') : '';
     var fp = document.getElementById('ed-prod'); if (fp) fp.value = (d.prod && d.prod !== '—') ? d.prod : '';
@@ -4454,6 +4456,125 @@
   }
 
   // V1.5.3：持有人选择器——label 行挂「从成员列表选择」触发钮，弹成员候选浮层（lic 风格），点选回填；保留手输
+  /* ── V2.3.8：存放位置级联选择（一级房间折叠，点击展开下层位置）── */
+  function locCascadeData() {
+    var groups = [];
+    var seen = {};
+    var treeNodes = document.querySelectorAll('#page-locations .loc-node');
+    if (treeNodes.length) {
+      treeNodes.forEach(function (node) {
+        var headEl = node.querySelector('.loc-head');
+        var nameEl = headEl ? headEl.querySelector('span') : null;
+        var room = nameEl ? nameEl.textContent.trim() : '';
+        if (!room || seen[room]) return;
+        var g = { room: room, kids: [] };
+        seen[room] = 1; groups.push(g);
+        node.querySelectorAll('.loc-child').forEach(function (child) {
+          var subEl = child.querySelector('span');
+          var cName = subEl ? subEl.textContent.trim() : '';
+          if (!cName) return;
+          var cCount = child.querySelector('.loc-count');
+          if (cCount && cCount.textContent.trim() === '—') return; // 备注行不作为可选位置
+          var full = room + ' · ' + cName;
+          if (!seen[full]) { g.kids.push(full); seen[full] = 1; }
+        });
+      });
+    }
+    if (!groups.length) {
+      // 树尚未渲染：回退到内置骨架 + 自定义位置（与 locOptionsHtml 同源）
+      BUILTIN_ROOMS.forEach(function (r) {
+        var room = resolveRenamedName(r.name);
+        if (seen[room]) return;
+        var g = { room: room, kids: [] };
+        seen[room] = 1; groups.push(g);
+        (r.children || []).forEach(function (c) {
+          var full = room + ' · ' + c;
+          if (!seen[full]) { g.kids.push(full); seen[full] = 1; }
+        });
+      });
+      loadLocations().forEach(function (item) {
+        if (!item || !item.name) return;
+        if (item.parent) {
+          var pg = null;
+          for (var i = 0; i < groups.length; i++) { if (groups[i].room === item.parent) { pg = groups[i]; break; } }
+          var full = item.parent + ' · ' + item.name;
+          if (pg) { if (!seen[full]) { pg.kids.push(full); seen[full] = 1; } }
+          else if (!seen[item.parent]) { groups.push({ room: item.parent, kids: [full] }); seen[item.parent] = 1; seen[full] = 1; }
+        } else if (!seen[item.name]) { groups.push({ room: item.name, kids: [] }); seen[item.name] = 1; }
+      });
+    }
+    return groups;
+  }
+
+  function openLocCascade(targetId) {
+    var oldOv = document.getElementById('loc-cascade-ov');
+    if (oldOv && oldOv.parentNode) oldOv.parentNode.removeChild(oldOv);
+    var inp = document.getElementById(targetId || 'f-loc');
+    var cur = inp ? String(inp.value || '').trim() : '';
+    var escH = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+    var groups;
+    try { groups = locCascadeData(); } catch (eLd) { groups = []; }
+    if ((!groups || !groups.length) && cur) groups = [{ room: cur, kids: [] }];
+    if (!groups || !groups.length) groups = [{ room: '其他', kids: [] }];
+    var rows = '';
+    var curHit = false;
+    for (var gi = 0; gi < groups.length; gi++) {
+      var g = groups[gi];
+      var room = g.room;
+      var curBelongs = cur === room || (cur && cur.indexOf(room + ' · ') === 0);
+      var isCurRoom = cur === room;
+      if (isCurRoom) curHit = true;
+      rows += '<div style="display:flex;align-items:stretch;border-bottom:1px solid #eef0ea;">' +
+        '<button type="button" data-toggle="' + gi + '" style="flex:1;text-align:left;padding:12px 6px 12px 14px;border:0;background:' + (isCurRoom ? '#e7efe6' : '#ffffff') + ';font-size:14.5px;font-weight:600;color:#1c2333;cursor:pointer;">' + escH(room) +
+        '<span style="float:right;color:#9aa3b2;font-size:12px;margin-top:2px;" id="lcv-arrow-' + gi + '">' + ((curBelongs && g.kids.length) ? '▾' : '▸') + '</span></button>' +
+        '<button type="button" data-pick="' + escH(room) + '" style="padding:0 14px;border:0;border-left:1px solid #eef0ea;background:' + (isCurRoom ? '#e7efe6' : '#ffffff') + ';color:#1f6f5c;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;">选此</button>' +
+        '</div>';
+      if (g.kids && g.kids.length) {
+        rows += '<div id="lcv-kids-' + gi + '" style="display:' + (curBelongs ? 'block' : 'none') + ';background:#fafbf8;">';
+        for (var ki = 0; ki < g.kids.length; ki++) {
+          var full = g.kids[ki];
+          var isCurFull = cur === full;
+          if (isCurFull) curHit = true;
+          rows += '<button type="button" data-pick="' + escH(full) + '" style="display:block;width:100%;text-align:left;padding:11px 14px 11px 30px;border:0;border-bottom:1px solid #f0f2ec;background:' + (isCurFull ? '#e7efe6' : 'transparent') + ';font-size:13.5px;color:#374151;cursor:pointer;">' + escH(full) + '</button>';
+        }
+        rows += '</div>';
+      }
+    }
+    if (cur && !curHit) {
+      rows = '<button type="button" data-pick="' + escH(cur) + '" style="display:block;width:100%;text-align:left;padding:11px 14px;border:0;border-bottom:1px solid #eef0ea;background:#e7efe6;font-size:13.5px;color:#374151;cursor:pointer;">当前：' + escH(cur) + '（历史位置）</button>' + rows;
+    }
+    var ov = document.createElement('div');
+    ov.id = 'loc-cascade-ov';
+    ov.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:10060;display:flex;align-items:flex-end;justify-content:center;';
+    ov.innerHTML =
+      '<div data-close="1" style="position:absolute;left:0;top:0;right:0;bottom:0;background:rgba(15,23,42,.55);"></div>' +
+      '<div style="position:relative;width:min(92vw,380px);max-height:78vh;overflow:auto;background:#fff;border-radius:16px 16px 0 0;padding:18px 14px 14px;box-shadow:0 20px 60px rgba(15,23,42,.35);box-sizing:border-box;">' +
+        '<div style="font-size:16px;font-weight:700;color:#16181a;margin-bottom:2px;">选择存放位置</div>' +
+        '<div style="color:#6b7688;font-size:12.5px;margin-bottom:12px;line-height:1.7;">点房间名展开下层位置；点「选此」直接用整个房间。</div>' +
+        '<div style="border:1px solid #e8e9e4;border-radius:10px;overflow:hidden;">' + rows + '</div>' +
+        '<button type="button" data-close="1" style="width:100%;margin-top:10px;padding:9px 0;border:0;border-radius:9px;background:#f2f4f0;color:#4a5056;font-size:13.5px;cursor:pointer;">取消</button>' +
+      '</div>';
+    (document.body || document.documentElement).appendChild(ov);
+    ov.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.getAttribute) return;
+      try {
+        if (t.getAttribute('data-close') === '1') { if (ov.remove) ov.remove(); else if (ov.parentNode) ov.parentNode.removeChild(ov); return; }
+        if (t.hasAttribute('data-toggle')) {
+          var tg = t.getAttribute('data-toggle');
+          var kids = document.getElementById('lcv-kids-' + tg);
+          var arrow = document.getElementById('lcv-arrow-' + tg);
+          var open = kids && kids.style.display !== 'none';
+          if (kids) kids.style.display = open ? 'none' : 'block';
+          if (arrow) arrow.textContent = open ? '▸' : '▾';
+          return;
+        }
+        var pk = t.getAttribute('data-pick');
+        if (pk) { if (inp) inp.value = pk; if (ov.remove) ov.remove(); else if (ov.parentNode) ov.parentNode.removeChild(ov); try { toast('已选择存放位置：' + pk); } catch (eT) {} return; }
+      } catch (errOv) { try { toast('操作失败：' + ((errOv && errOv.message) ? errOv.message : errOv)); } catch (e3) {} }
+    });
+  }
+
   function ensureHolderPicker(targetId) {
     var tgt = targetId || 'ed-holder';
     var inp = document.getElementById(tgt);
@@ -5779,7 +5900,8 @@ function renderReminderCenter() {
     renderMedOverviewCard();   // V2.0：首页用药总览卡（与账单卡同排，随全局刷新）
     renderOftenBuyCard();   // V2.2：首页常购补录卡随全局刷新
     var items = getAllItems();
-    // V4.0：按类别分三组（药品/食品/家电），都以"有效期至"为准；其它类别带有效期的归入药品组兜底
+    // V2.3.11：提醒只覆盖「药品（效期）/食品（保质期）/家电（保修）」三类有期限问题的物品；
+    // 证件、衣物、书籍及其它类别不再进入提醒（此前其它类别带有效期会兜底混入药品组）
     var groups = { drug: { expiring: [], expired: [] }, food: { expiring: [], expired: [] }, appliance: { expiring: [], expired: [] } };
     items.forEach(function (it) {
       var exp = it.exp && it.exp !== '—' && it.exp !== '-' ? it.exp : itemExp(it.name);
@@ -5787,9 +5909,11 @@ function renderReminderCenter() {
       var days = daysUntil(exp);
       if (days === null) return;
       var cat = String(it.cat || it.category || '');
-      var g = 'drug';
-      if (cat.indexOf('食品') >= 0) g = 'food';
+      var g = null;
+      if (cat.indexOf('药品') >= 0) g = 'drug';
+      else if (cat.indexOf('食品') >= 0) g = 'food';
       else if (cat.indexOf('家电') >= 0) g = 'appliance';
+      if (!g) return;
       var rec = { name: it.name, loc: it.loc, days: days, exp: exp, id: (it && it.id) || '', hold: it.holder || '' };   // V1.3：效期行带记录级 id；V2.1：带持有人供筛选
       if (days < 0) groups[g].expired.push(rec);
       else if (days <= 30) groups[g].expiring.push(rec);
@@ -5867,7 +5991,7 @@ function renderReminderCenter() {
         return;
       }
       var GV = { drug: { e: drugE, n: drugN, t: '药品效期', sub: '有效期至' },
-                 food: { e: foodE, n: foodN, t: '食品保质期', sub: '保质期至' },
+                 food: { e: foodE, n: foodN, t: '食品质期', sub: '保质期至' },
                  appliance: { e: appE, n: appN, t: '家电保修', sub: '保修至' } };
       var cur = GV[remTab] || GV.drug;
       // V1.4：提醒中心补药行——用药档案 refill/empty（主页雷达有、列表区补齐）
@@ -7244,8 +7368,9 @@ function showBillViewer() {
   }
 
   /* ═══════════ 关于本软件 ═══════════ */
-  var APP_VERSION = '2.3.6';  // 收纳管理 V2.1：提醒中心按成员（持有人）筛选  // 收纳管理 V1.3：多人用药（同名分瓶·每人档案·共用一瓶）
+  var APP_VERSION = '2.3.11';  // 收纳管理 V2.1：提醒中心按成员（持有人）筛选  // 收纳管理 V1.3：多人用药（同名分瓶·每人档案·共用一瓶）
   window.APP_VERSION = APP_VERSION;   // 暴露给锁屏等外部脚本
+  window.mergeUserItemsIntoDetails = mergeUserItemsIntoDetails;   // V2.3.7：暴露给安装引导块（跨块调用守卫用）
   var APP_AUTHOR = 'Peter.Xiong';
   var APP_MAKER = '智普 AutoClaw 的设计专家系统';
   var APP_INTRO = '本软件由 ' + APP_AUTHOR + ' 利用 ' + APP_MAKER + ' 设计。用于居家收纳与物品管理，如有问题和建议或希望长期使用，请与 Peterx 联系：peterx@qq.com。';
@@ -7287,11 +7412,17 @@ function showBillViewer() {
   function ensureLocSelects() {
     // 始终刷新：位置新增/改名/排序后，各页下拉立即与位置树同步
     var f = document.getElementById('f-loc');
-    if (f) { var cur = f.value; f.innerHTML = locOptionsHtml(cur || '卧室-祥 · 书桌'); }
+    if (f && f.tagName === 'SELECT') { var cur = f.value; f.innerHTML = locOptionsHtml(cur || '卧室-祥 · 书桌'); }
+    else if (f && !f.value) { f.value = '卧室-祥 · 书桌'; } // V2.3.8：位置字段已是级联输入框，首次初始化预填默认位置（与原下拉默认一致）
     var m = document.getElementById('m-loc');
     if (m) { var cur2 = m.value; m.innerHTML = locOptionsHtml(cur2 || '办公室 · 书柜'); }
   }
   ensureLocSelects();
+  // V2.3.8：存放位置级联面板全局委托（扫码登记/条码库编辑/拍照确认页共用）
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-locpick]') : null;
+    if (b) { try { openLocCascade(b.getAttribute('data-locpick')); } catch (eLc) { try { toast('打开位置选择失败：' + ((eLc && eLc.message) ? eLc.message : eLc)); } catch (e2) {} } }
+  });
   applyLocRenames();
   applyLocDeletions();
   restoreLocations();          // 增量恢复自定义位置（兜底）
@@ -7632,6 +7763,31 @@ var ell = '\u2026';
     _zxingActive = false; _zxingReader = null;
   }
   // 手动引导面板（专业版布局：停相机 → 相机区遮罩提示 + 下方展开手动输入黄框）
+  /* ── V2.3.8：手动输入条码提交绑定（V2.3.6 及此前按钮无任何绑定，点击无反应）── */
+  (function bindBarcodeManualGo() {
+    var go = document.getElementById('barcode-manual-go');
+    var inp = document.getElementById('barcode-manual-input');
+    if (go && !go.__bmBound) {
+      go.__bmBound = true;
+      go.addEventListener('click', function () {
+        var v = inp ? String(inp.value || '').trim() : '';
+        if (!v) { try { toast('请先输入条码号'); } catch (e0) {} return; }
+        try { onBarcodeFound(v); } catch (e1) { try { toast('处理条码失败：' + ((e1 && e1.message) ? e1.message : e1)); } catch (e2) {} }
+      });
+    }
+    if (inp && !inp.__bmBound) {
+      inp.__bmBound = true;
+      inp.addEventListener('keydown', function (ev) {
+        if (ev && ev.key === 'Enter') {
+          ev.preventDefault();
+          var v = String(inp.value || '').trim();
+          if (!v) { try { toast('请先输入条码号'); } catch (e0) {} return; }
+          try { onBarcodeFound(v); } catch (e1) { try { toast('处理条码失败：' + ((e1 && e1.message) ? e1.message : e1)); } catch (e2) {} }
+        }
+      });
+    }
+  })();
+
   function showBarcodeManualPanel(reason) {
     var st = document.getElementById('barcode-status');
     try { stopCamera(); } catch (e) {}
@@ -7840,7 +7996,8 @@ var ell = '\u2026';
           '<input type="text" class="input editable" id="bc-realname" placeholder="例如：布洛芬缓释胶囊" style="width:100%;box-sizing:border-box;margin-top:5px;" /></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:5px;">分类</label><div id="bc-cats" style="display:flex;flex-wrap:wrap;gap:6px;">' + catBtns + '</div></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">存放位置</label>' +
-          '<select class="input editable" id="bc-loc" style="width:100%;box-sizing:border-box;margin-top:5px;">' + locOptionsHtml('') + '</select></div>' +
+          '<input class="input editable" id="bc-loc" style="width:100%;box-sizing:border-box;margin-top:5px;" placeholder="可手输，或点下方按钮按房间选择">' +
+          '<button type="button" data-locpick="bc-loc" style="display:block;width:100%;margin-top:6px;padding:9px 0;border:1px dashed #1f6f5c;border-radius:9px;background:#f4f8f5;color:#155244;font-size:13.5px;font-weight:600;cursor:pointer;text-align:center;">按房间展开选择位置（点房间名展开下层）</button></div>' +
         '<div class="lic-btns" style="margin-top:14px;">' +
           '<button class="lic-btn-primary" id="bc-ok" style="width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent,#5F7F5A);color:#fff;font-weight:600;cursor:pointer;">记入库并补录一件</button>' +
           '<button class="lic-btn-plain" id="bc-save-only" style="width:100%;padding:11px;border:1px solid #e6eaf2;border-radius:10px;background:#fff;color:#374151;margin-top:8px;cursor:pointer;">仅记入条码库</button>' +
@@ -7848,6 +8005,7 @@ var ell = '\u2026';
         '</div>' +
       '</div>';
     document.body.appendChild(ov);
+    try { var _bcLocEl0 = document.getElementById('bc-loc'); if (_bcLocEl0 && !_bcLocEl0.value) { var _lcg0 = locCascadeData(); _bcLocEl0.value = (_lcg0 && _lcg0.length && _lcg0[0]) ? _lcg0[0].room : '其他'; } } catch (eLc0) {} // V2.3.8：默认首房间（与原下拉默认第一项一致）
     var style = document.createElement('style');
     style.textContent = '#barcode-enroll-modal .lic-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10004}#barcode-enroll-modal .lic-box{position:fixed;z-index:10005;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;border-radius:16px;padding:20px 18px 14px;width:min(88vw,380px);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(15,23,42,.35)}#barcode-enroll-modal .lic-title{font-size:16px;font-weight:700;color:#0f172a}';
     document.head.appendChild(style);
@@ -7982,7 +8140,8 @@ var ell = '\u2026';
           '<input type="text" class="input editable" id="bc-name" placeholder="例如 牛奶" value="' + esc(entry.name || '') + '" style="width:100%;box-sizing:border-box;margin-top:5px;" /></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:5px;">分类</label><div id="bc-cats" style="display:flex;flex-wrap:wrap;gap:6px;">' + catBtns + '</div></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">存放位置</label>' +
-          '<select class="input editable" id="bc-loc" style="width:100%;box-sizing:border-box;margin-top:5px;">' + locOptionsHtml(oldLoc) + '</select></div>' +
+          '<input class="input editable" id="bc-loc" style="width:100%;box-sizing:border-box;margin-top:5px;" placeholder="可手输，或点下方按钮按房间选择">' +
+          '<button type="button" data-locpick="bc-loc" style="display:block;width:100%;margin-top:6px;padding:9px 0;border:1px dashed #1f6f5c;border-radius:9px;background:#f4f8f5;color:#155244;font-size:13.5px;font-weight:600;cursor:pointer;text-align:center;">按房间展开选择位置（点房间名展开下层）</button></div>' +
         '<div class="lic-btns" style="margin-top:14px;">' +
           '<button class="lic-btn-primary" id="bc-ok" style="width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent,#5F7F5A);color:#fff;font-weight:600;cursor:pointer;">保存</button>' +
           '<button class="lic-btn-plain" id="bc-del" style="width:100%;padding:11px;border:1px solid #f3d4d4;border-radius:10px;background:#fff;color:#c0392b;margin-top:8px;cursor:pointer;">删除该条码记录</button>' +
@@ -7990,6 +8149,7 @@ var ell = '\u2026';
         '</div>' +
       '</div>';
     document.body.appendChild(ov);
+    try { var _bcLocEl1 = document.getElementById('bc-loc'); if (_bcLocEl1) { var _old1 = String(oldLoc || '').trim(); if (!_old1) { var _lcg1 = locCascadeData(); _old1 = (_lcg1 && _lcg1.length && _lcg1[0]) ? _lcg1[0].room : '其他'; } _bcLocEl1.value = _old1; } } catch (eLc1) {} // V2.3.8：保留原位置，无则默认首房间
     var style = document.createElement('style');
     style.textContent = '#barcode-enroll-modal .lic-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10008}#barcode-enroll-modal .lic-box{position:fixed;z-index:10009;left:50%;top:50%;transform:translate(-50%,-50%);background:#fff;border-radius:16px;padding:20px 18px 14px;width:min(88vw,380px);max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(15,23,42,.35)}#barcode-enroll-modal .lic-title{font-size:16px;font-weight:700;color:#0f172a}';
     document.head.appendChild(style);
@@ -8087,7 +8247,9 @@ var ell = '\u2026';
         '<div style="color:#9aa3b2;font-size:11.5px;line-height:1.5;padding:2px 0 4px;">同一二维码对应同一真实名称，不可修改</div>' +
         (recent ? '<div class="rebuy-row" style="display:flex;justify-content:space-between;font-size:13.5px;padding:5px 0;"><span style="color:#6b7688;">现有数量</span><span style="font-weight:600;color:#0f172a;" id="rebuy-cur">' + esc(String(curQty)) + '</span></div>' : '') +
         (isDemoOnly ? '<div style="color:#9aa3b2;font-size:12px;line-height:1.6;padding:6px 0 2px;">「' + esc(name) + '」目前是示例数据：确认后将登记为真实物品（本次数量为准，不沿用示例数量）。</div>' : '') +
-        '<div class="rebuy-row" style="display:flex;justify-content:space-between;font-size:13.5px;padding:5px 0;"><span style="color:#6b7688;">存放位置</span><span style="color:#0f172a;text-align:right;">' + esc(loc) + '</span></div>' +
+        '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:5px;">存放位置<span style="color:#9aa3b2;font-weight:400;">（可修改：本次入库将记录新位置）</span></label>' +
+          '<input type="text" id="rebuy-loc" value="' + esc(loc) + '" placeholder="可手输，或点下方按钮按房间选择" style="width:100%;box-sizing:border-box;border:1px solid #e0e5ee;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;background:#fff;color:#0f172a;" />' +
+          '<button type="button" data-locpick="rebuy-loc" style="display:block;width:100%;margin-top:6px;padding:9px 0;border:1px dashed #1f6f5c;border-radius:9px;background:#f4f8f5;color:#155244;font-size:13.5px;font-weight:600;cursor:pointer;text-align:center;">按房间展开选择位置（点房间名展开下层）</button></div>' +
         '<div class="rebuy-row" style="display:flex;justify-content:space-between;font-size:13.5px;padding:5px 0;"><span style="color:#6b7688;">分类</span><span style="color:#0f172a;">' + esc(cat) + '</span></div>' +
         '<div style="margin-top:12px;"><label style="font-size:13px;color:#374151;font-weight:600;">本次数量（按实际入库量）</label>' +
           '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">' +
@@ -8217,6 +8379,7 @@ var ell = '\u2026';
     else { toast('已从常购移除' + (nRec > 0 ? '：' + nm : '') + (nBar > 0 ? '（含扫码记录）' : '')); try { showOftenBuyViewer(); } catch (eR4) {} }
   }
   async function rebuyCommit(ov, name) {
+    var _locSel = ''; try { var _rlEl = document.getElementById('rebuy-loc'); _locSel = _rlEl ? String(_rlEl.value || '').trim() : ''; } catch (eRs0) {}   // V2.3.9：补录可变更存放位置
     var qtyEl = document.getElementById('rebuy-qty');
     var qty = parseInt(String(qtyEl ? qtyEl.textContent : '1').replace(/[^\d]/g, ''), 10);
     if (isNaN(qty) || qty < 1) { toast('请输入正确的本次数量（至少 1）'); return; }
@@ -8235,7 +8398,7 @@ var ell = '\u2026';
     var _bc = (_bov && _bov.barcode) ? String(_bov.barcode).trim() : '';
     var _lockedReal = (ov && ov._lockedReal) ? String(ov._lockedReal) : ((_bov && _bov.realName) ? String(_bov.realName) : '');
     try { if (_bc) bumpBarcodeTimes(_bc); } catch (eBT2) {}   // V2.2：补录成功计入常购频次
-      if (_bc) syncItemCodeToBarcodeLib(_orig, _bc, (_bov && _bov.category) || '', (_bov && _bov.loc) || '');
+      if (_bc) syncItemCodeToBarcodeLib(_orig, _bc, (_bov && _bov.category) || '', _locSel || ((_bov && _bov.loc) || ''));   // V2.3.9：位置回写随本次选择
     // V2.3.6：补录手输持有者回写条码库，防下次扫码命中弹层持有者又空
     if (_bc && _hd) { try { var _be = findBarcodeEntry(_bc); if (_be && String(_be.holder || '') !== _hd) { _be.holder = _hd; if (_bov && _bov.realName) _be.realName = _bov.realName; upsertBarcodeEntry(_be); } } catch (eBH) {} }   // V1.5.5：必须传带出原名——改名新增不改写条码库锚点（sync 全等早退，原名无变化时零写入）
     var items = loadUserItems();
@@ -8274,7 +8437,7 @@ var ell = '\u2026';
       var ni = {
         name: _nm,
         category: catDef,
-        loc: (base.loc && base.loc !== '未设置') ? base.loc : '未设置',
+        loc: _locSel || ((base.loc && base.loc !== '未设置') ? base.loc : '未设置'),   // V2.3.9：补录所选位置优先
         qty: String(qty),
         tags: '', badge: 'ok', badgeText: '正常', added: dstr, member: (typeof SELF_ID !== 'undefined') ? SELF_ID : '1',
         note: '', prod: '—', exp: '—', batch: '—', photo: '',
@@ -8308,6 +8471,7 @@ var ell = '\u2026';
       } catch (eM2) {}
       ov.remove();
       _viewingItem = _nm; _viewingItemId = ni.id || ''; fillDetail(_nm);
+      resetDetailEditMode(); showPage('page-detail');   // V2.3.7：补录完成回到该物品详情页
       if (_renamed) {
         toast('已新增物品「' + _nm + '」×' + qty + (base.holder ? '（持有人：' + base.holder + '）' : '') + '；原「' + _orig + '」记录保持不变');
       } else {
@@ -8322,6 +8486,7 @@ var ell = '\u2026';
     var newQty = oldQty + qty;
     var upd = Object.assign({}, recent, {
       qty: String(newQty),
+      loc: _locSel || recent.loc,   // V2.3.9：补录可变更存放位置
       updatedAt: new Date().toISOString()
     });
     var rest;
@@ -8350,7 +8515,9 @@ var ell = '\u2026';
     mergeUserItemsIntoDetails();
     renderItemLists(); renderReminderCenter();
     ov.remove();
-    _viewingItem = _orig; fillDetail(_orig);
+    _viewingItem = _orig; if (recent && recent.id) _viewingItemId = recent.id;   // V2.3.7：同名多瓶精确定位到本瓶
+    fillDetail(_orig);
+    resetDetailEditMode(); showPage('page-detail');   // V2.3.7：补录完成回到该物品详情页
     var _inDemo2 = false;
     try { for (var di2 = 0; di2 < DEMO_ITEMS.length; di2++) { var dm2 = DEMO_ITEMS[di2]; if (dm2 && (dm2.name === _orig || dm2 === _orig)) { _inDemo2 = true; break; } } } catch (eD2) {}
     if (_inDemo2 && !recent.id) toast('已登记「' + _orig + '」为真实物品（数量 ' + newQty + (upd.holder ? '，持有人：' + upd.holder : '') + '，示例数据已替换）');
@@ -8639,15 +8806,21 @@ var LOCK_HASH_KEY = 'family…lock_h';
       }
     }
     // 加载已保存物品到详情数据（刷新后新增物品仍可查）
-    mergeUserItemsIntoDetails();
+    // V2.3.7：本块为独立 <script>，主逻辑函数在其 IIFE 内不可直接见；原裸调用必抛
+    // ReferenceError 并中断本块后续初始化（安装引导失效），改为守卫调用
+    if (typeof window.mergeUserItemsIntoDetails === 'function') { try { window.mergeUserItemsIntoDetails(); } catch (eMerge0) {} }
 
     // 3) 加入桌面/安装引导：捕获原生安装提示；等不到时给手动引导兜底
     var deferredPrompt = null;
     var installCard = document.getElementById('install-card');
     var installBtn = document.getElementById('install-btn');
     var installDismiss = document.getElementById('install-dismiss');
+    // V2.3.10：Capacitor 原生 APK 本身就是桌面图标，WebView 无 display-mode:standalone 上下文、
+    // beforeinstallprompt 不触发、sessionStorage 随冷启动清空——三者叠加导致 APK 每次启动都弹
+    // 「把它放到桌面」。原生平台一律视为已安装，跳过整个安装引导。
     var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-      (window.navigator.standalone === true);
+      (window.navigator.standalone === true) ||
+      !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
     var manualMode = false; // 无原生提示时，卡片进入手动引导模式
     var INSTALL_DISMISS_KEY = 'family-install-dismissed';
 
