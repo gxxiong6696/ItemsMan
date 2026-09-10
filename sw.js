@@ -2,7 +2,7 @@
    策略：离线优先 + 后台网络更新（stale-while-revalidate 简化版）
    缓存：应用外壳（HTML/manifest/图标）全部预缓存，离线可完整打开 */
 
-var CACHE_NAME = 'shouna-v35-20260908-2145';
+var CACHE_NAME = 'shouna-v43-20260910-1243';
 
 var APP_SHELL = [
   './',

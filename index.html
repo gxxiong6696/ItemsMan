@@ -1224,6 +1224,11 @@
             </div>
 
             <div class="field">
+              <label for="f-price">单价（元）<span style="font-weight:400;color:var(--muted);">（可选）</span></label>
+              <input type="number" class="input editable" id="f-price" min="0" step="0.01" placeholder="0.00" />
+            </div>
+
+            <div class="field">
               <label for="f-exp">有效期至<span style="font-weight:400;color:var(--muted);">（药品/食品建议填写）</span></label>
               <input type="date" class="input editable" id="f-exp" aria-label="有效期至" />
               <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap;">
@@ -1366,6 +1371,10 @@
               <span style="color: var(--muted);">数量</span>
               <span class="num" style="font-weight: 500;" id="dt-qty">2 盒</span>
             </div>
+            <div class="card flat row-between" id="dt-price-card" style="display: none;">
+              <span style="color: var(--muted);">单价</span>
+              <span class="num" style="font-weight: 500;" id="dt-price"></span>
+            </div>
             <div class="card flat row-between">
               <span style="color: var(--muted);">生产日期</span>
               <span class="num" id="dt-prod">2025-03-12</span>
@@ -1438,6 +1447,10 @@
               <div class="field">
                 <label>标签</label>
                 <div class="input editable" id="ed-tags" contenteditable="true" role="textbox"></div>
+              </div>
+              <div class="field">
+                <label>单价（元）</label>
+                <input type="number" class="input editable" id="ed-price" min="0" step="0.01" placeholder="0.00" />
               </div>
             </div>
             <div class="row" style="gap: 10px; margin-top: 6px;">
@@ -3895,7 +3908,24 @@
     var _mk = (d && d.__user && d.__user.id) ? d.__user.id : name;   // V1.3 审稿修复：档案键=当前瓶 id（同名多瓶不再错挂首瓶）
     var rec = (typeof medGetAny === 'function') ? medGetAny(_mk) : medGet(_mk); var st = rec && rec.on ? medState(_mk) : null;
     // 注：与既有编辑/删除按钮一致，全 App 无运行时操作级鉴权（不做访客分支）
+    // V2.3.15：病愈存药状态卡（档案保留 on=0 + curedAt）——显示用药人/疾病/余量，可恢复服用
     if (!st) {
+      var _mRecC = null;
+      try { _mRecC = (typeof medGetAny === 'function') ? medGetAny(_mk) : null; } catch (eMC9) {}
+      if (_mRecC && _mRecC.curedAt) {
+        var _stL = (_mRecC.stockLeft != null) ? Number(_mRecC.stockLeft) : (Number(_mRecC.left) || 0);
+        slot.innerHTML =
+          '<div class="card flat" style="margin-top:2px;background:linear-gradient(135deg,#f3f8f2,#fbfdf9);">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+              '<svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:#46613F;fill:none;stroke-width:1.7;flex:0 0 auto;"><path d="M12 21s-7-4.6-7-10a7 7 0 0 1 14 0c0 5.4-7 10-7 10z"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0"/></svg>' +
+              '<span style="font-weight:600;font-size:13.5px;color:#2f4a2b;">病愈存药中</span>' +
+            '</div>' +
+            '<div style="font-size:12.5px;color:#5c6f58;line-height:1.8;">痊愈于 <b>' + esc(_mRecC.curedAt) + '</b>' + (_mRecC.curedDisease ? ' · 疾病 ' + esc(_mRecC.curedDisease) : '') + ' · 用药人 ' + esc(_mRecC.holder || '家庭共用') + ' · 存药余量约 <b>' + _stL + '</b> 粒</div>' +
+            '<button type="button" class="btn-primary" style="width:100%;margin-top:10px;" data-action="med-resume" data-med-id="' + _mk + '">恢复服用（存药并入推算）</button>' +
+            '<button type="button" class="btn-secondary" style="width:100%;margin-top:8px;" data-action="med-setup" data-med-id="' + _mk + '">重新设置用药</button>' +
+          '</div>';
+        return;
+      }
       slot.innerHTML =
         '<div class="card flat" style="margin-top:2px;background:linear-gradient(135deg,#f3f8f2,#fbfdf9);">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
@@ -4085,6 +4115,7 @@
     var dis = rec.disease || '';
     var msg = '确认「' + name + '」病愈停药？\n将退出用药期间管理与补药提醒（物品保留）' + (dis ? '\n留档疾病：' + dis : '');
     if (!window.confirm(msg)) return;
+    rec.stockLeft = (typeof medState === 'function' ? (medState(_mkC) || {}).estLeft : 0) || 0;   // V2.3.15：停药时刻余量冻结（存药）
     rec.on = 0;
     rec.curedAt = _todayStr();
     rec.curedDisease = dis;
@@ -4094,6 +4125,7 @@
     renderMedCard(name);
     renderReminderCenter();
     toast('已病愈停药' + (dis ? '（' + dis + '）' : '') + '，已退出用药管理');
+    try { if (typeof showMedOverviewViewer === 'function') showMedOverviewViewer(dis); } catch (eCs1) {}   // V2.3.19：返回该药品的疾病用药列表，便于继续停药
   }
   function turnOffMed(name, idKey) {
     if (!window.confirm('停用「' + name + '」的用药期间管理？历史记录将清除（物品本身不受影响）。')) return;
@@ -4102,8 +4134,19 @@
     renderReminderCenter();
     toast('已停用用药管理');
   }
+  // V2.3.15：存药恢复服用——冻结余量并入推算（asOf 重置为今天）
+  function medResumeFromStock(name, idKey) {
+    var _mkR = idKey || name;
+    var rec = (typeof medGetAny === 'function') ? medGetAny(_mkR) : null;
+    if (!rec) { toast('未找到存药档案'); return; }
+    var np = Object.assign({}, rec, { on: 1, asOf: new Date().toISOString().slice(0, 10), left: (rec.stockLeft != null ? Number(rec.stockLeft) : (Number(rec.left) || 0)), updatedAt: Date.now() });
+    delete np.curedAt; delete np.curedDisease; delete np.stockLeft;
+    if (typeof medSetById === 'function') medSetById(_mkR, np);
+    renderMedCard(name); renderReminderCenter();
+    toast('已恢复服用，存药余量并入用药推算');
+  }
   document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('[data-action="med-setup"],[data-action="med-restock"],[data-action="med-cure"],[data-action="med-off"]') : null;
+    var b = e.target && e.target.closest ? e.target.closest('[data-action="med-setup"],[data-action="med-restock"],[data-action="med-cure"],[data-action="med-off"],[data-action="med-resume"]') : null;
     if (!b) return;
     var _midB = b.getAttribute('data-med-id') || _viewingItemId || '';
     var name = b.getAttribute('data-med-name') || _viewingItem || '';
@@ -4117,6 +4160,7 @@
     if (act === 'med-setup') openMedSetup(name, _midB);
     else if (act === 'med-restock') openMedRestock(name, _midB);
     else if (act === 'med-cure') cureStopMed(name, _midB);
+    else if (act === 'med-resume') medResumeFromStock(name, _midB);   // V2.3.15：存药恢复服用
     else if (act === 'med-off') turnOffMed(name, _midB);
   });
 
@@ -4177,6 +4221,13 @@
     }
     document.getElementById('dt-loc').textContent = d.loc;
     document.getElementById('dt-qty').textContent = d.qty;
+    var dtp = document.getElementById('dt-price');   // V2.3.13：单价展示（>0 才显示）
+    if (dtp) {
+      var _upD = Number(d.unitPrice);
+      if (!isFinite(_upD) || _upD <= 0) { try { _upD = Number(_userRec && _userRec.unitPrice) || 0; } catch (eUP0) {} }
+      dtp.parentNode.style.display = _upD > 0 ? '' : 'none';
+      dtp.textContent = _upD > 0 ? ('¥ ' + _upD.toFixed(2)) : '';
+    }
     document.getElementById('dt-prod').textContent = d.prod;
     document.getElementById('dt-exp').textContent = d.exp;
     document.getElementById('dt-batch').textContent = d.batch;
@@ -4424,6 +4475,7 @@
     var f = document.getElementById('ed-name'); if (f) f.textContent = _viewingItem;
     var fcat = document.getElementById('ed-cat'); if (fcat) fcat.value = normalizeCat(itemCategory(d));
     var floc = document.getElementById('ed-loc'); if (floc && floc.tagName === 'SELECT') { floc.innerHTML = locOptionsHtml(d.loc); } else if (floc) { floc.value = d.loc || ''; } // V2.3.9：位置字段已升级为级联输入框，直接回填当前值
+    var fpr = document.getElementById('ed-price'); if (fpr) fpr.value = (d.unitPrice && d.unitPrice > 0) ? d.unitPrice : '';   // V2.3.13：单价回填
     var fq = document.getElementById('ed-qty'); if (fq) fq.textContent = d.qty || '1';
     var ft = document.getElementById('ed-tags'); if (ft) ft.textContent = d.tags ? d.tags.replace(/<[^>]*>/g, '') : '';
     var fp = document.getElementById('ed-prod'); if (fp) fp.value = (d.prod && d.prod !== '—') ? d.prod : '';
@@ -4732,6 +4784,7 @@ if (newName && newName !== _viewingItem && typeof ITEM_DETAILS !== 'undefined' &
     var batch = (document.getElementById('ed-batch') ? document.getElementById('ed-batch').textContent.trim() : '') || '—';
     var note = (document.getElementById('ed-note') ? document.getElementById('ed-note').textContent.trim() : '');
     var code = (document.getElementById('ed-code') ? document.getElementById('ed-code').value.trim() : '') || '';
+    var _edPrice = 0; try { var _epEl = document.getElementById('ed-price'); _edPrice = _epEl ? (parseFloat(String(_epEl.value || '').replace(/[^\d.]/g, '')) || 0) : 0; } catch (eEP) {}   // V2.3.13：单价解析
     var old = null;
     if (_viewingItemId && typeof userItemById === 'function') { try { var _ou0 = userItemById(_viewingItemId); if (_ou0) old = _ou0; } catch (eO0) {} }
     if (!old) old = ITEM_DETAILS[_viewingItem] || {};
@@ -4756,7 +4809,7 @@ if (newName && newName !== _viewingItem && typeof ITEM_DETAILS !== 'undefined' &
     if (typeof userItemById === 'function' && _viewingItemId) { try { if (userItemById(_viewingItemId)) _curId = _viewingItemId; } catch (eI) {} }
     if (!_curId && typeof userIdForName === 'function') { try { _curId = userIdForName(_viewingItem); } catch (eI2) {} }
     if (!realName && cat === '药品') realName = newName;
-    var cur = { id: _curId, name: newName, realName: realName, holder: holder, category: cat, code: code, loc: loc, qty: qty, tags: tags, prod: prod, exp: exp, batch: batch, note: note, badge: isDateCat ? (old.badge || 'ok') : 'ok', badgeText: isDateCat ? (old.badgeText || '正常') : '正常', added: (((old.meta || '').match(/添加于\s*([\d-]+)/)) || [])[1] || '', member: (old.meta || '').match(/@(\w+)/) ? (old.meta.match(/@(\w+)/)[1]) : '1', photo: oldPhoto };
+    var cur = { id: _curId, name: newName, realName: realName, holder: holder, category: cat, code: code, loc: loc, qty: qty, tags: tags, prod: prod, exp: exp, batch: batch, note: note, badge: isDateCat ? (old.badge || 'ok') : 'ok', badgeText: isDateCat ? (old.badgeText || '正常') : '正常', added: (((old.meta || '').match(/添加于\s*([\d-]+)/)) || [])[1] || '', member: (old.meta || '').match(/@(\w+)/) ? (old.meta.match(/@(\w+)/)[1]) : '1', photo: oldPhoto, unitPrice: _edPrice > 0 ? _edPrice : (Number(old.unitPrice) || 0) };   // V2.3.13：单价落库（留空沿用原值）
     // 持久化到 localStorage（用户物品 + 演示物品都可编辑保存）
     // 若改名（newName !== 旧名），先把旧名从数据源剔除，旧名加入删除清单，避免刷新后“旧名复活”
     if (newName !== _viewingItem) {
@@ -5198,6 +5251,7 @@ case 'show-deleted': showDeletedItems(); break;
       nameEl.textContent = name;   // 确认页名称同步显示编号结果，所见即所得
       toast('库中已有「' + _dupTip + '」，已自动编号为「' + name + '」');
     }
+    var _fPrice = 0; try { var _fpEl = document.getElementById('f-price'); _fPrice = _fpEl ? (parseFloat(String(_fpEl.value || '').replace(/[^\d.]/g, '')) || 0) : 0; } catch (eFP) {}   // V2.3.13：单价解析
     var expEl = document.getElementById('f-exp');
     var fexp = expEl && expEl.value ? expEl.value : '';
     var badge = 'ok', badgeText = '正常';
@@ -5226,7 +5280,8 @@ case 'show-deleted': showDeletedItems(); break;
       badge: badge, badgeText: badgeText, added: dstr, member: (typeof SELF_ID !== 'undefined' ? SELF_ID : 'm1'),
       note: '', prod: '—', exp: fexp || '—', batch: '—', photo: _shot, thumb: _thumb,
       realName: (document.getElementById('f-realname') ? String(document.getElementById('f-realname').value || '').trim() : ''),
-      holder: (document.getElementById('f-holder') ? String(document.getElementById('f-holder').value || '').trim() : '')
+      holder: (document.getElementById('f-holder') ? String(document.getElementById('f-holder').value || '').trim() : ''),
+      unitPrice: _fPrice   // V2.3.13：单价落库
     };
     var _arr = loadUserItems().filter(function (it) { return !(it && it.name === name); });
     _arr.unshift(_newItem);
@@ -5780,6 +5835,7 @@ function renderItemLists() {    var items = getAllItems();
       if (!e) return;
       e.times = (e.times || 0) + 1;
       e.lastSeen = new Date().toISOString().slice(0, 10);
+      if (e.noRebuy) { delete e.noRebuy; }   // V2.3.14：再次扫码自动恢复常购
       upsertBarcodeEntry(e);
     } catch (eBT) {}
   }
@@ -5808,6 +5864,7 @@ function renderItemLists() {    var items = getAllItems();
     }); } catch (eRF) {}
     try { loadBarcodeLib().forEach(function (b) {
       if (!b || !b.code) return;
+      if (b.noRebuy === OB_RARE) return;   // V2.3.14：已移除的常购条目不再出现
       var bn = b.name || '';
       if (!bn || (typeof batchIsDemoName === 'function' && batchIsDemoName(bn))) return;
       var ts = 0; try { ts = b.lastSeen ? (Date.parse(b.lastSeen) || 0) : 0; } catch (eTP) { ts = 0; }
@@ -5847,7 +5904,7 @@ function renderItemLists() {    var items = getAllItems();
         var badge = o.restock ? '<span class="badge warn ob-badge">待补</span>' : '';
         var scanTag = (o.times || 0) > 1 ? '<span style="font-size:10.5px;color:#8a94a6;flex:none;">扫 ' + o.times + ' 次</span>' : '';
         var priceTxt = (o.unitPrice && o.unitPrice > 0) ? ' · 单价 ' + o.unitPrice : '';
-        rowsHtml += '<div class="ob-row" data-ob-name="' + esc(o.name) + '" data-ob-code="' + esc(o.code || '') + '" data-ob-cat="' + esc(o.category || '') + '" data-ob-loc="' + esc(o.loc || '') + '">' +
+        rowsHtml += '<div class="ob-row" data-ob-name="' + esc(o.name) + '" data-ob-code="' + esc(o.code || '') + '" data-ob-up="' + (o.unitPrice || 0) + '" data-ob-cat="' + esc(o.category || '') + '" data-ob-loc="' + esc(o.loc || '') + '">' +
           '<div style="flex:1;min-width:0;">' +
             '<div class="ob-rname">' + esc(o.name) + badge + '</div>' +
             '<div class="ob-rmeta">' + esc(o.category || '') + (o.loc ? ' · ' + esc(o.loc) : '') + priceTxt + '</div>' +
@@ -5890,7 +5947,7 @@ function renderItemLists() {    var items = getAllItems();
         var nm = row.getAttribute('data-ob-name') || '';
         if (!nm) return;
         ov.remove();
-        openRebuyModal(nm, { category: row.getAttribute('data-ob-cat') || '', loc: row.getAttribute('data-ob-loc') || '', barcode: row.getAttribute('data-ob-code') || '' }, null, true);
+        openRebuyModal(nm, { category: row.getAttribute('data-ob-cat') || '', loc: row.getAttribute('data-ob-loc') || '', barcode: row.getAttribute('data-ob-code') || '', unitPrice: parseFloat(row.getAttribute('data-ob-up')) || 0 }, null, true);   // V2.3.13：常购单价带出
       }
     });
   }
@@ -6846,6 +6903,7 @@ function showBillViewer() {
   function medOverviewData() {
     var people = [];
     var pIdx = {};
+    var stock = [];   // V2.3.15：病愈存药（on=0 且 curedAt）
     function personOf(nm) {
       if (!nm) nm = '家庭共用';
       if (pIdx[nm] === undefined) {
@@ -6866,7 +6924,19 @@ function showBillViewer() {
       var medsMap = loadMeds();
       Object.keys(medsMap).forEach(function (k) {
         var rec = medsMap[k];
-        if (!rec || !rec.on) return;   // 只统计正在服用
+        if (!rec) return;
+        // V2.3.15：病愈存药（on=0 且 curedAt）——保留用药人/疾病/余量，供「病愈存药」区块与按疾病查询
+        if (!rec.on) {
+          if (!rec.curedAt) return;
+          var _itS = null;
+          if (k && k.indexOf('it_') === 0 && typeof userItemById === 'function') { try { _itS = userItemById(k); } catch (eS0) {} }
+          var _ds = (typeof ITEM_DETAILS !== 'undefined') ? ((_itS && ITEM_DETAILS[_itS.name]) ? ITEM_DETAILS[_itS.name] : ITEM_DETAILS[k]) : null;
+          if (!_ds && _itS) _ds = { name: _itS.name, category: _itS.category || '药品' };
+          if (!_ds || typeof itemCategory !== 'function' || String(itemCategory(_ds)).indexOf('药品') < 0) return;
+          var _sl = (rec.stockLeft != null) ? Number(rec.stockLeft) : Math.max(0, Number(rec.left) || 0);
+          stock.push({ key: k, name: (_itS && _itS.name) ? _itS.name : k, id: (_itS && _itS.id) ? _itS.id : k, holder: String(rec.holder || (_itS && _itS.holder) || '').trim() || '家庭共用', disease: String(rec.curedDisease || rec.disease || '').trim(), stockLeft: _sl, dose: Number(rec.dose) || 1, curedAt: rec.curedAt || '' });
+          return;
+        }
         var _itM = null;
         if (k && k.indexOf('it_') === 0 && typeof userItemById === 'function') { try { _itM = userItemById(k); } catch (eM3) {} }
         var _d = (typeof ITEM_DETAILS !== 'undefined') ? ((_itM && ITEM_DETAILS[_itM.name]) ? ITEM_DETAILS[_itM.name] : ITEM_DETAILS[k]) : null;
@@ -6892,20 +6962,25 @@ function showBillViewer() {
         });
         total++;
       });
-    } catch (eMO) {}
+    } catch (eMO) { try { console.error('[medOverviewData]', eMO && (eMO.message || eMO)); } catch (eMO2) {} }
     var w = { empty: 0, refill: 1, ok: 2 };
     people.forEach(function (p) {
       p.meds.sort(function (x, y) { return (w[x.status] - w[y.status]) || (x.daysLeft - y.daysLeft) || (x.name < y.name ? -1 : 1); });
     });
     var live = people.filter(function (p) { return p.meds.length; });
-    return { people: live, total: total };
+    // V2.3.15：疾病清单（服药中 + 存药 去重汇总，供按疾病查询筛选 chips）
+    var _dz = [];
+    people.forEach(function (p) { p.meds.forEach(function (m) { var _dd = String(m.disease || '').trim(); if (_dd && _dz.indexOf(_dd) < 0) _dz.push(_dd); }); });
+    stock.forEach(function (s) { var _dd = String(s.disease || '').trim(); if (_dd && _dz.indexOf(_dd) < 0) _dz.push(_dd); });
+    _dz.sort(function (a, b) { return a.localeCompare(b, 'zh'); });
+    return { people: live, total: total, stock: stock, diseases: _dz };
   }
   // 首页用药总览入口卡（无人在服时整卡隐藏，行容器自动让另一卡占满）
   function renderMedOverviewCard() {
     var wrap = document.getElementById('med-overview-wrap');
     if (!wrap) { syncHomeQuickRow(); return; }
     var d;
-    try { d = medOverviewData(); } catch (e) { d = null; }
+    try { d = medOverviewData(); } catch (e) { d = null; try { console.error('[medOverviewData call]', e && (e.message || e)); } catch (e2) {} }
     if (!d || !d.total) { wrap.style.display = 'none'; syncHomeQuickRow(); return; }
     wrap.style.display = '';
     var sub = document.getElementById('med-overview-sub');
@@ -6930,20 +7005,64 @@ function showBillViewer() {
   }
   // 用药总览浮层：按人分组列出正在服用的药（含共服），行点击直达详情
     function moKeyOf(n) { return 'k' + String(n).split('').map(function (c) { return c.charCodeAt(0).toString(36); }).join(''); }
-  function showMedOverviewViewer() {
+  function showMedOverviewViewer(filterDisease) {
     var _prevM = document.getElementById('med-overview-viewer'); if (_prevM) _prevM.remove();
     var _stM = document.getElementById('med-overview-viewer-style'); if (_stM) _stM.remove();
     var d;
-    try { d = medOverviewData(); } catch (e) { d = null; }
+    try { d = medOverviewData(); } catch (e) { d = null; try { console.error('[medOverviewData call]', e && (e.message || e)); } catch (e2) {} }
     var stMeta = { ok: ['ok', '充足', '#46613F'], refill: ['warn', '需补药', '#d97706'], empty: ['danger', '已用完', '#c0392b'] };
     var bodyHtml = '';
     var headNote = '';
-    if (!d || !d.total) {
+    var stockHtml = '';   // V2.3.15：病愈存药区块（含用药人/疾病/余量/痊愈日 + 恢复服用）
+    var chipsHtml = '';   // V2.3.15：按疾病查询筛选 chips
+    if (d && d.diseases && d.diseases.length) {
+      // V2.3.18：疾病筛选改为折叠入口——默认只留「全部」+「按疾病筛选」，点入口才展开疾病列表
+      chipsHtml = '<div style="display:flex;gap:6px;padding:2px 0 10px;align-items:center;">' +
+        '<span class="mo-chip mo-chip-on" data-mo-dz="">全部</span>' +
+        '<span class="mo-chip" id="mo-dz-toggle">按疾病筛选 &#9662;</span>' +
+        '</div>' +
+        '<div id="mo-dz-wrap" style="display:none;gap:6px;overflow-x:auto;padding:0 0 10px;-webkit-overflow-scrolling:touch;">' +
+        d.diseases.map(function (dz) { return '<span class="mo-chip" data-mo-dz="' + esc(dz) + '">' + esc(dz) + '</span>'; }).join('') +
+        '</div>';
+    }
+    if (d && d.stock && d.stock.length) {
+      // V2.3.16：痊愈疾病组——层级同「姓名」：点组头折叠/展开 → 出疾病名 → 点疾病名出存药列表
+      var _sg = [], _sgi = {};
+      d.stock.forEach(function (s) {
+        var _dd = String(s.disease || '').trim();
+        var _dk = _dd || '未填写';
+        if (_sgi[_dk] === undefined) { _sgi[_dk] = _sg.length; _sg.push({ disease: _dd, meds: [] }); }
+        _sg[_sgi[_dk]].meds.push(s);
+      });
+      stockHtml = '<div class="mo-sec folded" data-mokey="' + moKeyOf('痊愈疾病') + '">' +
+        '<div class="mo-phead mo-fold" title="点击展开/折叠痊愈疾病（存药）"><span class="mo-av">愈</span>' +
+        '<span class="mo-pname">痊愈疾病</span>' +
+        '<span class="mo-pcnt">' + d.stock.length + ' 份</span><span class="mo-caret">&#9656;</span></div>';
+      _sg.forEach(function (gr) {
+        stockHtml += '<div class="mo-dsec folded" data-dkey="' + moKeyOf('愈·' + (gr.disease || '未填写')) + '" data-disease="' + esc(gr.disease || '') + '">' +
+          '<div class="mo-dhead mo-fold" title="点击展开/折叠该疾病的存药"><span class="mo-ddot"></span>' +
+          '<span class="mo-dname">' + (gr.disease ? esc(gr.disease) : '未填写') + '</span>' +
+          '<span class="mo-dcnt">' + gr.meds.length + ' 种</span><span class="mo-caret">&#9656;</span></div>';
+        gr.meds.forEach(function (s) {
+          stockHtml += '<div class="mo-row" data-action="go-detail" data-item="' + String(s.name).replace(/"/g, '&quot;') + '"' + (s.id ? ' data-id="' + String(s.id).replace(/"/g, '&quot;') + '"' : '') + '>' +
+            '<div style="flex:1;min-width:0;">' +
+              '<div class="mo-rname">' + esc(s.name) + '<span class="badge ok mo-badge">存药</span></div>' +
+              '<div class="mo-rmeta">用药人 ' + esc(s.holder) + ' · 余量约 <b>' + s.stockLeft + '</b> 粒 · 痊愈于 ' + esc(s.curedAt) + '</div>' +
+            '</div>' +
+            '<button type="button" data-mo-resume="' + esc(s.key) + '" style="flex:none;border:1px solid #1f6f5c;background:#f4f8f5;color:#155244;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:9px;cursor:pointer;">恢复服用</button>' +
+          '</div>';
+        });
+        stockHtml += '</div>';
+      });
+      stockHtml += '</div>';
+      if (!d.total) headNote = '<div style="background:#eef4ea;border:1px solid #d5e6cf;color:#2f4a2b;border-radius:10px;padding:8px 10px;font-size:12.5px;margin-bottom:12px;line-height:1.6;">无正在服用的用药档案 · ' + d.stock.length + ' 份痊愈疾病（点「恢复服用」可继续管理余量）</div>';
+    }
+    if ((!d || !d.total) && !stockHtml) {
       bodyHtml = '<div style="text-align:center;color:#98a1b0;font-size:13px;padding:26px 0;">暂无正在服用的用药档案<br><span style="font-size:12px;">在药品详情页「启用用药管理」后，这里会按人汇总</span></div>';
     } else {
       headNote = '<div style="background:#eef4ea;border:1px solid #d5e6cf;color:#2f4a2b;border-radius:10px;padding:8px 10px;font-size:12.5px;margin-bottom:12px;line-height:1.6;">' + d.people.length + ' 人正在服药 · 共 ' + d.total + ' 瓶（含共用一瓶的共服人）</div>';
       d.people.forEach(function (p) {
-        var sec = '<div class="mo-sec" data-mokey="' + moKeyOf(p.name) + '">' +
+        var sec = '<div class="mo-sec folded" data-mokey="' + moKeyOf(p.name) + '">' +
           '<div class="mo-phead mo-fold" title="点击折叠/展开该成员的药品"><span class="mo-av">' + esc(String(p.name).charAt(0)) + '</span>' +
           '<span class="mo-pname">' + esc(p.name) + (p.rel ? '<span class="mo-prel">' + esc(p.rel) + '</span>' : '') + '</span>' +
           '<span class="mo-pcnt">' + p.meds.length + ' 种</span><span class="mo-caret">&#9656;</span></div>';
@@ -6955,7 +7074,7 @@ function showBillViewer() {
         });
         if (_unfMeds.length) _g.push({ disease: '', meds: _unfMeds });
         _g.forEach(function (gr) {
-          sec += '<div class="mo-dsec" data-dkey="' + moKeyOf(gr.disease || '未填写') + '">' +
+          sec += '<div class="mo-dsec folded" data-dkey="' + moKeyOf(gr.disease || '未填写') + '" data-disease="' + esc(gr.disease || '') + '">' +
             '<div class="mo-dhead mo-fold" title="点击折叠/展开该疾病的药品"><span class="mo-ddot"></span>' +
             '<span class="mo-dname">' + (gr.disease ? esc(gr.disease) : '未填写') + '</span>' +
             '<span class="mo-dcnt">' + gr.meds.length + ' 种</span><span class="mo-caret">&#9656;</span></div>';
@@ -6979,17 +7098,25 @@ function showBillViewer() {
         bodyHtml += sec + '</div>';
       });
     }
+    bodyHtml += stockHtml;   // V2.3.15：病愈存药区块并入
     var ov = document.createElement('div');
     ov.id = 'med-overview-viewer';
     ov.innerHTML =
       '<div class="mo-mask"></div>' +
       '<div class="mo-box">' +
         '<div class="mo-head"><span class="mo-title">用药总览 · 正在服用</span><button class="mo-close">&#10005;</button></div>' +
-        '<div class="mo-list">' + headNote + bodyHtml +
+        '<div class="mo-list">' + headNote + chipsHtml + bodyHtml +
           '<div class="mo-foot">仅统计正在服用的用药档案 · 点任意药品直达详情页</div>' +
         '</div>' +
       '</div>';
     document.body.appendChild(ov);
+    if (filterDisease) {   // V2.3.19：病愈停药后自动定位到该药品的疾病列表（筛选 + 展开，便于继续停药）
+      ov.querySelectorAll('.mo-dsec').forEach(function (d) { var _dd = d.getAttribute('data-disease') || ''; d.style.display = (_dd === filterDisease) ? '' : 'none'; });
+      ov.querySelectorAll('.mo-sec').forEach(function (s) { var _vis = false; s.querySelectorAll('.mo-dsec').forEach(function (d) { if (d.style.display !== 'none') _vis = true; }); s.style.display = _vis ? '' : 'none'; if (_vis) s.classList.remove('folded'); });
+      ov.querySelectorAll('.mo-dsec').forEach(function (d) { if (d.style.display !== 'none') d.classList.remove('folded'); });
+      var _tgF = ov.querySelector('#mo-dz-toggle'); if (_tgF) _tgF.textContent = '疾病：' + filterDisease + ' ▾';
+      ov.querySelectorAll('[data-mo-dz]').forEach(function (c) { c.classList.toggle('mo-chip-on', c.getAttribute('data-mo-dz') === filterDisease); });
+    }
     var style = document.createElement('style');
     style.id = 'med-overview-viewer-style';
     style.textContent =
@@ -7003,6 +7130,7 @@ function showBillViewer() {
       '#med-overview-viewer .mo-phead{display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;user-select:none;-webkit-user-select:none}' +
       '#med-overview-viewer .mo-caret{margin-left:6px;font-size:11px;color:#8a94a6;transition:transform .18s ease;transform:rotate(90deg);flex:none}' +
       '#med-overview-viewer .mo-sec.folded .mo-caret{transform:rotate(0deg)}' +
+      '#med-overview-viewer .mo-sec.folded .mo-dsec{display:none}' +
       '#med-overview-viewer .mo-sec.folded .mo-row{display:none}' +
       '#med-overview-viewer .mo-av{width:28px;height:28px;border-radius:50%;background:#e2efe0;color:#2f4a2b;display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}' +
       '#med-overview-viewer .mo-pname{font-size:14px;font-weight:600;color:#1c2333}' +
@@ -7023,12 +7151,44 @@ function showBillViewer() {
       '#med-overview-viewer .mo-rmeta{font-size:12px;color:#5a6474;margin-top:3px;line-height:1.6}' +
       '#med-overview-viewer .mo-rmeta b{color:#1c2333}' +
       '#med-overview-viewer .mo-cohint{margin-top:4px;padding:5px 8px;border-radius:7px;background:#eef4ea;color:#2f4a2b;font-size:11.5px}' +
-      '#med-overview-viewer .mo-foot{font-size:11.5px;color:#98a1b0;text-align:center;padding:8px 0 2px}';
+      '#med-overview-viewer .mo-foot{font-size:11.5px;color:#98a1b0;text-align:center;padding:8px 0 2px}' +
+      '#med-overview-viewer .mo-chip{flex:none;display:inline-block;padding:6px 12px;border-radius:16px;border:1px solid #dbe5d8;background:#fff;color:#374151;font-size:12.5px;cursor:pointer;white-space:nowrap}' +
+      '#med-overview-viewer .mo-chip-on{background:#2f4a2b;border-color:#2f4a2b;color:#fff}';
     document.head.appendChild(style);
     // 点遮罩或 ✕ 关闭；药行跳详情走全局 go-detail 委托（行自带 data-action）
     ov.addEventListener('click', function (e) {
       var t = e.target;
       if (t && (t.classList && (t.classList.contains('mo-mask') || t.classList.contains('mo-close')))) ov.remove();
+      else if (t && t.closest && t.closest('#mo-dz-toggle')) {   // V2.3.18：展开/收起疾病筛选列表
+        var _wz = ov.querySelector('#mo-dz-wrap');
+        if (_wz) _wz.style.display = (_wz.style.display === 'flex') ? 'none' : 'flex';
+        return;
+      }
+      else if (t && t.closest && t.closest('[data-mo-dz]')) {   // V2.3.15：按疾病查询筛选
+        var _chip = t.closest('[data-mo-dz]');
+        var _dz = _chip.getAttribute('data-mo-dz') || '';
+        ov.querySelectorAll('[data-mo-dz]').forEach(function (c) { c.classList.toggle('mo-chip-on', c.getAttribute('data-mo-dz') === _dz); });
+        ov.querySelectorAll('.mo-dsec').forEach(function (d) { var _dd = d.getAttribute('data-disease') || ''; d.style.display = (_dz === '' || _dd === _dz) ? '' : 'none'; });
+        ov.querySelectorAll('.mo-sec').forEach(function (s) { var _vis = false; s.querySelectorAll('.mo-dsec').forEach(function (d) { if (d.style.display !== 'none') _vis = true; }); s.style.display = _vis ? '' : 'none'; });
+        var _wz2 = ov.querySelector('#mo-dz-wrap'); if (_wz2) _wz2.style.display = 'none';   // V2.3.18：选完收起疾病列表
+        var _tg2 = ov.querySelector('#mo-dz-toggle'); if (_tg2) _tg2.textContent = _dz ? ('疾病：' + _dz + ' ▾') : '按疾病筛选 ▾';
+        return;
+      }
+      else if (t && t.closest && t.closest('[data-mo-resume]')) {   // V2.3.15：存药恢复服用
+        var _rsBtn = t.closest('[data-mo-resume]');
+        var _rk = _rsBtn.getAttribute('data-mo-resume');
+        var _rec = (typeof medGetAny === 'function') ? medGetAny(_rk) : null;
+        if (_rec) {
+          var _np = Object.assign({}, _rec, { on: 1, asOf: new Date().toISOString().slice(0, 10), left: (_rec.stockLeft != null ? Number(_rec.stockLeft) : (Number(_rec.left) || 0)), updatedAt: Date.now() });
+          delete _np.curedAt; delete _np.curedDisease; delete _np.stockLeft;
+          if (typeof medSetById === 'function') medSetById(_rk, _np);
+          toast('已恢复服用「' + (_np.name || _rk) + '」，存药余量并入用药推算');
+          ov.remove();
+          try { showMedOverviewViewer(); } catch (eRs2) {}
+          try { renderMedCard(_np.name || ''); renderReminderCenter(); } catch (eRs3) {}
+        }
+        return;
+      }
       else if (t && t.closest && t.closest('.mo-dhead')) { var _ds = t.closest('.mo-dsec'); if (_ds) _ds.classList.toggle('folded'); }   // V2.3.6 折叠疾病组
       else if (t && t.closest && t.closest('.mo-phead')) { var _sec = t.closest('.mo-sec'); if (_sec) _sec.classList.toggle('folded'); }   // 点击成员姓名行
       else if (t && t.closest && t.closest('.mo-row')) ov.remove();   // 行点击：先收浮层，跳转交给 document 委托
@@ -7368,7 +7528,7 @@ function showBillViewer() {
   }
 
   /* ═══════════ 关于本软件 ═══════════ */
-  var APP_VERSION = '2.3.11';  // 收纳管理 V2.1：提醒中心按成员（持有人）筛选  // 收纳管理 V1.3：多人用药（同名分瓶·每人档案·共用一瓶）
+  var APP_VERSION = '2.3.19';  // 收纳管理 V2.1：提醒中心按成员（持有人）筛选  // 收纳管理 V1.3：多人用药（同名分瓶·每人档案·共用一瓶）
   window.APP_VERSION = APP_VERSION;   // 暴露给锁屏等外部脚本
   window.mergeUserItemsIntoDetails = mergeUserItemsIntoDetails;   // V2.3.7：暴露给安装引导块（跨块调用守卫用）
   var APP_AUTHOR = 'Peter.Xiong';
@@ -7490,6 +7650,7 @@ function showBillViewer() {
                   unitPrice: 0, times: 1, lastSeen: dstr, added: dstr };
     if (oldE) {
       if (oldE.unitPrice != null && oldE.unitPrice > 0) entry.unitPrice = oldE.unitPrice;
+      if (oldE.noRebuy === OB_RARE) entry.noRebuy = OB_RARE;   // V2.3.14：抑制标记随继承保留，防编辑保存/补录回灌
       if (oldE.times != null) entry.times = oldE.times;
       entry.added = oldE.added || dstr;
       entry.lastSeen = oldE.lastSeen || dstr;
@@ -7956,7 +8117,7 @@ var ell = '\u2026';
       toast('识别到条码：' + (en.name || raw));
       showPage(_scanReturnPage || 'page-home');
       // V1.5.1：库条目建档时已存持有人/通用名，自动带出须一并透传（配合 sync 继承修复，来源不再被擦）
-      openRebuyModal(en.name, { category: en.category, loc: en.loc, barcode: raw, holder: en.holder || '', realName: en.realName || '' });
+      openRebuyModal(en.name, { category: en.category, loc: en.loc, barcode: raw, holder: en.holder || '', realName: en.realName || '', unitPrice: en.unitPrice || 0 });   // V2.3.13：条码库单价带出
     } else if (ITEM_DETAILS[raw]) {
       // 物品名直达：扫到自制二维码（内容=物品名）→ 直达该物品详情
       _viewingItem = raw; _scanDateItem = raw; _scanReturnPage = 'page-detail';
@@ -7992,6 +8153,8 @@ var ell = '\u2026';
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">持有人/服用者<span style="font-weight:400;color:#9aa3b2;">（药品建议填写：一人一瓶各管各的）</span></label>' +
           '<input type="text" class="input editable" id="bc-holder" list="bc-members" placeholder="例如：妈妈" style="width:100%;box-sizing:border-box;margin-top:5px;" />' +
           '<datalist id="bc-members"></datalist></div>' +
+        '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">单价（元）<span style="font-weight:400;color:#9aa3b2;">（可选）</span></label>' +
+          '<input type="number" class="input editable" id="bc-price" min="0" step="0.01" placeholder="0.00" style="width:100%;box-sizing:border-box;margin-top:5px;" /></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">通用名<span style="font-weight:400;color:#9aa3b2;">（药盒上的商品真名，多人同款药不冲突）</span></label>' +
           '<input type="text" class="input editable" id="bc-realname" placeholder="例如：布洛芬缓释胶囊" style="width:100%;box-sizing:border-box;margin-top:5px;" /></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:5px;">分类</label><div id="bc-cats" style="display:flex;flex-wrap:wrap;gap:6px;">' + catBtns + '</div></div>' +
@@ -8049,13 +8212,14 @@ var ell = '\u2026';
     var _bHold = (document.getElementById('bc-holder') ? String(document.getElementById('bc-holder').value || '').trim() : '');
     var _bReal = (document.getElementById('bc-realname') ? String(document.getElementById('bc-realname').value || '').trim() : '');
     var d = new Date(); var dstr = d.toISOString().slice(0, 10);
-    var entry = { code: code, name: name, category: cat, loc: loc, unitPrice: 0, times: 1, lastSeen: dstr, added: dstr, holder: _bHold, realName: _bReal };
+    var _bcPrice = 0; try { var _bpEl2 = document.getElementById('bc-price'); _bcPrice = _bpEl2 ? (parseFloat(String(_bpEl2.value || '').replace(/[^\d.]/g, '')) || 0) : 0; } catch (eBP2) {}   // V2.3.13：登记弹层单价
+    var entry = { code: code, name: name, category: cat, loc: loc, unitPrice: _bcPrice, times: 1, lastSeen: dstr, added: dstr, holder: _bHold, realName: _bReal };
     var res = upsertBarcodeEntry(entry);
     if (!res) { toast('条码库写入失败：本地存储空间不足'); return; }
     ov.remove();
     toast('已记入条码库（尚未加入物品库）：「' + name + '」下次扫码可一键补录');
     if (thenRebuy) {
-      openRebuyModal(name, { category: cat, loc: loc, barcode: code, holder: _bHold, realName: _bReal });
+      openRebuyModal(name, { category: cat, loc: loc, barcode: code, holder: _bHold, realName: _bReal, unitPrice: _bcPrice });   // V2.3.13：单价随单透传
     } else {
       goHome();
     }
@@ -8142,6 +8306,8 @@ var ell = '\u2026';
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">存放位置</label>' +
           '<input class="input editable" id="bc-loc" style="width:100%;box-sizing:border-box;margin-top:5px;" placeholder="可手输，或点下方按钮按房间选择">' +
           '<button type="button" data-locpick="bc-loc" style="display:block;width:100%;margin-top:6px;padding:9px 0;border:1px dashed #1f6f5c;border-radius:9px;background:#f4f8f5;color:#155244;font-size:13.5px;font-weight:600;cursor:pointer;text-align:center;">按房间展开选择位置（点房间名展开下层）</button></div>' +
+          '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;">单价（元）<span style="font-weight:400;color:#9aa3b2;">（可选）</span></label>' +
+            '<input type="number" class="input editable" id="bc-price" min="0" step="0.01" value="' + (entry.unitPrice && entry.unitPrice > 0 ? esc(entry.unitPrice) : '') + '" placeholder="0.00" style="width:100%;box-sizing:border-box;margin-top:5px;" /></div>' +
         '<div class="lic-btns" style="margin-top:14px;">' +
           '<button class="lic-btn-primary" id="bc-ok" style="width:100%;padding:13px;border:none;border-radius:10px;background:var(--accent,#5F7F5A);color:#fff;font-weight:600;cursor:pointer;">保存</button>' +
           '<button class="lic-btn-plain" id="bc-del" style="width:100%;padding:11px;border:1px solid #f3d4d4;border-radius:10px;background:#fff;color:#c0392b;margin-top:8px;cursor:pointer;">删除该条码记录</button>' +
@@ -8188,7 +8354,10 @@ var ell = '\u2026';
     var found = false;
     for (var i = 0; i < arr.length; i++) {
       if (arr[i] && arr[i].code === code) {
+        var _epEl3 = document.getElementById('bc-price');
+        var _epVal = _epEl3 ? (parseFloat(String(_epEl3.value || '').replace(/[^\d.]/g, '')) || 0) : 0;
         arr[i].name = name; arr[i].category = cat; arr[i].loc = loc;
+        if (_epVal > 0) { arr[i].unitPrice = _epVal; }   // V2.3.13：单价更新（留空沿用原值）
         found = true;
         break;
       }
@@ -8217,12 +8386,14 @@ var ell = '\u2026';
         category: override.category || base.category || '其他',
         loc: override.loc || base.loc || '未设置',
         holder: override.holder || base.holder || '',
-        realName: override.realName || base.realName || ''
+        realName: override.realName || base.realName || '',
+        unitPrice: (override.unitPrice && override.unitPrice > 0) ? override.unitPrice : (base.unitPrice || 0)
       };
     }
     var isDemoOnly = !recent;
     var loc = (recent && recent.loc) ? recent.loc : (base.loc || '未设置');
     var cat = (recent && recent.category) ? recent.category : (base.category || '其他');
+    var up = (recent && recent.unitPrice > 0) ? recent.unitPrice : (base.unitPrice || 0);   // V2.3.13：单价默认值（当前瓶优先）
     if (!cat || cat === '其他') { try { var _ic = (typeof itemCategory === 'function') ? itemCategory(base) : ''; if (_ic) cat = _ic; } catch (eI) {} }
     var curQty = recent ? String(recent.qty || '1') : (isDemoOnly ? '' : '1');
     var _medSt = null;
@@ -8243,6 +8414,8 @@ var ell = '\u2026';
           '<input type="text" id="rebuy-name-input" value="' + esc(name) + '" style="width:100%;box-sizing:border-box;border:1px solid #e0e5ee;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;background:#fff;color:#0f172a;" /></div>' +
         '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:5px;">持有人 / 服用者</label>' +
           '<input type="text" id="rebuy-holder-input" value="' + esc(_defHolder) + '" placeholder="留空表示家庭共用" style="width:100%;box-sizing:border-box;border:1px solid #e0e5ee;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;background:#fff;color:#0f172a;" /></div>' +
+        '<div style="margin-bottom:10px;"><label style="font-size:13px;color:#374151;font-weight:600;display:block;margin-bottom:5px;">单价（元）<span style="font-weight:400;color:#9aa3b2;">（可修改：本次入库记录新单价）</span></label>' +
+          '<input type="number" id="rebuy-price" min="0" step="0.01" value="' + (up > 0 ? esc(up) : '') + '" placeholder="0.00" style="width:100%;box-sizing:border-box;border:1px solid #e0e5ee;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;background:#fff;color:#0f172a;" /></div>' +
         '<div class="rebuy-row" style="display:flex;justify-content:space-between;font-size:13.5px;padding:5px 0;align-items:baseline;"><span style="color:#6b7688;">真实名称（通用名）</span><span style="font-weight:600;color:#0f172a;text-align:right;" id="rebuy-realname">' + esc(_lockedReal || '—') + '</span></div>' +
         '<div style="color:#9aa3b2;font-size:11.5px;line-height:1.5;padding:2px 0 4px;">同一二维码对应同一真实名称，不可修改</div>' +
         (recent ? '<div class="rebuy-row" style="display:flex;justify-content:space-between;font-size:13.5px;padding:5px 0;"><span style="color:#6b7688;">现有数量</span><span style="font-weight:600;color:#0f172a;" id="rebuy-cur">' + esc(String(curQty)) + '</span></div>' : '') +
@@ -8369,8 +8542,12 @@ var ell = '\u2026';
     if (_bc) {
       try {
         var lib = loadBarcodeLib();
-        var out = lib.filter(function (b) { if (b && b.code === _bc) { nBar++; return false; } return true; });
-        if (nBar > 0) saveBarcodeLib(out);
+        for (var _li = 0; _li < lib.length; _li++) {
+          if (lib[_li] && lib[_li].code === _bc && lib[_li].noRebuy !== OB_RARE) { lib[_li].noRebuy = OB_RARE; nBar++; }
+        }
+        // V2.3.14：条码库条目保留并打抑制标记（原实现直接删除，启动补全会把仍在库、
+        // 有码的物品重新加回，导致每次升级/重启后常购条目复活）
+        if (nBar > 0) saveBarcodeLib(lib);
       } catch (eR2) {}
     }
     removeModalByEl(ov);
@@ -8380,6 +8557,7 @@ var ell = '\u2026';
   }
   async function rebuyCommit(ov, name) {
     var _locSel = ''; try { var _rlEl = document.getElementById('rebuy-loc'); _locSel = _rlEl ? String(_rlEl.value || '').trim() : ''; } catch (eRs0) {}   // V2.3.9：补录可变更存放位置
+    var _priceSel = 0; try { var _rpEl = document.getElementById('rebuy-price'); _priceSel = _rpEl ? (parseFloat(String(_rpEl.value || '').replace(/[^\d.]/g, '')) || 0) : 0; } catch (eRsP) {}   // V2.3.13：补录可变更单价
     var qtyEl = document.getElementById('rebuy-qty');
     var qty = parseInt(String(qtyEl ? qtyEl.textContent : '1').replace(/[^\d]/g, ''), 10);
     if (isNaN(qty) || qty < 1) { toast('请输入正确的本次数量（至少 1）'); return; }
@@ -8441,7 +8619,7 @@ var ell = '\u2026';
         qty: String(qty),
         tags: '', badge: 'ok', badgeText: '正常', added: dstr, member: (typeof SELF_ID !== 'undefined') ? SELF_ID : '1',
         note: '', prod: '—', exp: '—', batch: '—', photo: '',
-        unitPrice: 0,
+        unitPrice: _priceSel > 0 ? _priceSel : 0,   // V2.3.13：补录单价落库
         code: _bc || '',
         holder: _hd || '',       // V1.5.1：建档选择的持有人/通用名必须随瓶落库
         realName: _lockedReal || ''
@@ -8487,6 +8665,8 @@ var ell = '\u2026';
     var upd = Object.assign({}, recent, {
       qty: String(newQty),
       loc: _locSel || recent.loc,   // V2.3.9：补录可变更存放位置
+      unitPrice: _priceSel > 0 ? _priceSel : (Number(recent.unitPrice) || 0),   // V2.3.13：单价更新
+      unitPrice: _priceSel > 0 ? _priceSel : (Number(recent.unitPrice) || 0),   // V2.3.13：单价更新
       updatedAt: new Date().toISOString()
     });
     var rest;
