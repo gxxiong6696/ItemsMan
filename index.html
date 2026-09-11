@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
   Discovery:
-    deliverable: 家庭物品管理系统 手机 App 可交互原型 (390×844 authoring, responsive)
+    deliverable: 收纳管理系统 手机 App 可交互原型 (390×844 authoring, responsive)
     audience: 家庭全员（管理员=家长 / 成员 / 访客=老人孩子）
     direction: 温暖居家整理感 — 暖米白 + 苔藓绿 accent + 衬线 display
     sections: 5 主屏（首页/物品/位置/提醒/我的）+ 4 流程页（拍照添加/药品扫描/物品详情/成员权限）
@@ -19,7 +19,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="家庭物品" />
+<meta name="apple-mobile-web-app-title" content="收纳管理" />
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 <link rel="icon" type="image/png" href="icons/icon-192.png" />
 <script id="auto-designer-preview-contract" type="application/json">
@@ -328,6 +328,10 @@
     display: none; align-items: center; gap: 3px;
   }
   #page-locations.loc-mode-query .loc-view-btn { display: inline-flex; }
+  /* V2.3.20：二级收纳位行的查看入口更紧凑 */
+  .loc-child .loc-view-btn { font-size: 11px; padding: 3px 5px; gap: 2px; }
+  .loc-child .loc-view-btn svg { width: 12px; height: 12px; }
+  .loc-child .loc-view-btn:active { background: var(--accent-soft); }
 
   /* 位置筛选条（物品列表顶部） */
   .loc-filter-bar {
@@ -1314,7 +1318,7 @@
               <div style="display:flex; align-items:center; gap:10px;">
                 <div style="width:38px;height:38px;border-radius:12px; background:var(--accent-soft, #E7EFE4); display:grid; place-items:center; flex-shrink:0;"><svg viewBox="0 0 24 24" style="width:20px;height:20px; stroke:var(--accent-deep,#46613F); fill:none; stroke-width:1.8;"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
                 <div style="flex:1;">
-                  <div style="font-weight:600; font-size:14px;">家庭物品数据，备份在你手里</div>
+                  <div style="font-weight:600; font-size:14px;">收纳管理数据，备份在你手里</div>
                   <div style="font-size:11.5px; color:#6b7686; margin-top:2px; line-height:1.6;" id="vault-status-line">从未备份 · 换机或清数据前先备份一次</div>
                 </div>
               </div>
@@ -2702,7 +2706,7 @@
     var csv = buildLedgerCsv();
     if (csv === null) { toast('还没有可导出的物品记录'); return; }
     var d = new Date();
-    var name = '家庭物品清单-' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '.csv';
+    var name = '收纳管理清单-' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '.csv';
     var bytes = strToBytes(csv);
     if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
       var cp = window.Capacitor.Plugins;
@@ -3761,6 +3765,28 @@
       var countEl = headEl.querySelector('.loc-count');
       headEl.insertBefore(b, countEl);
     });
+    // V2.3.20：二级收纳位行也加「查看」入口（查询态）——像房间一样有显式按钮，查看该收纳位的物品
+    document.querySelectorAll('#page-locations .loc-child').forEach(function (childEl) {
+      if (childEl.querySelector('.loc-view-btn')) return;
+      var nameEl = childEl.querySelector('span');
+      var cName = nameEl ? nameEl.textContent.trim() : '';
+      if (!cName) return;
+      var countEl = childEl.querySelector('.loc-count');
+      var cTxt = countEl ? countEl.textContent.trim() : '';
+      if (cTxt === '—') return;   // 备注行不是收纳位，不提供查看
+      var nodeEl = childEl.closest('.loc-node');
+      var rEl = nodeEl ? nodeEl.querySelector('.loc-head span') : null;
+      var roomName = rEl ? rEl.textContent.trim() : '';
+      var full = roomName ? (roomName + ' · ' + cName) : cName;
+      var b = document.createElement('button');
+      b.className = 'loc-view-btn';
+      b.setAttribute('data-action', 'view-loc-items');
+      b.setAttribute('data-loc', full);
+      b.setAttribute('aria-label', '查看「' + full + '」的物品');
+      b.title = '查看「' + full + '」的物品';
+      b.innerHTML = LOC_VIEW_SVG;
+      childEl.insertBefore(b, countEl);
+    });
   }
 
   /* ── 位置页 查询/编辑 双模式：默认查询，编辑/删除仅编辑态出现，防误触 ── */
@@ -4313,7 +4339,7 @@
     var d = new Date();
     var ts = d.getFullYear() + ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2) + '-' + ('0'+d.getHours()).slice(-2) + ('0'+d.getMinutes()).slice(-2) + ('0'+d.getSeconds()).slice(-2);
     var safeName = String(_viewingItem || '物品').replace(/[\\\/:*?"<>|]/g, '_');
-    var fname = '家庭物品-' + safeName + '-' + ts + '.' + ext;
+    var fname = '收纳管理-' + safeName + '-' + ts + '.' + ext;
     ov.innerHTML =
       '<div class="pv-mask"></div>' +
       '<div class="pv-box">' +
@@ -7528,40 +7554,52 @@ function showBillViewer() {
   }
 
   /* ═══════════ 关于本软件 ═══════════ */
-  var APP_VERSION = '2.3.19';  // 收纳管理 V2.1：提醒中心按成员（持有人）筛选  // 收纳管理 V1.3：多人用药（同名分瓶·每人档案·共用一瓶）
+  var APP_VERSION = '2.3.21';  // 收纳管理 V2.1：提醒中心按成员（持有人）筛选  // 收纳管理 V1.3：多人用药（同名分瓶·每人档案·共用一瓶）
   window.APP_VERSION = APP_VERSION;   // 暴露给锁屏等外部脚本
   window.mergeUserItemsIntoDetails = mergeUserItemsIntoDetails;   // V2.3.7：暴露给安装引导块（跨块调用守卫用）
   var APP_AUTHOR = 'Peter.Xiong';
   var APP_MAKER = '智普 AutoClaw 的设计专家系统';
-  var APP_INTRO = '本软件由 ' + APP_AUTHOR + ' 利用 ' + APP_MAKER + ' 设计。用于居家收纳与物品管理，如有问题和建议或希望长期使用，请与 Peterx 联系：peterx@qq.com。';
-  var APP_DATE = '2026年9月6日';
-  var APP_FEATURES = '拍照入库、条码扫码、二维码生成、效期提醒（药品/食品/家电）、用药余量提醒（每日用量·余量自动推算·提前提醒补药）、处理去向闭环（丢弃/用完/转赠+留证）、月度浪费账单、数据保险箱（CSV 台账）、批量编辑、效期总览、拼音搜索、位置管理、家庭成员、备份导入导出、启动密码锁、离线授权试用';
-  var APP_STORE = '照片原图存入本机数据库（IndexedDB），质量不降、数量无上限；数据仅存本机、不联网；卸载或清数据会清空记录，请定期导出备份。';
-  var APP_DIFF = '收纳管理：照片原图存档（IndexedDB，质量不降、数量无上限）；备份格式与「家庭物品管理系统」互通，可直接导入其备份继续管理。';
+  var APP_INTRO = '居家收纳与物品管理的数字账本，由 ' + APP_AUTHOR + ' 设计。问题、建议或长期使用授权，请联系 peterx@qq.com。';
+  var APP_DATE = '2026年9月11日';
+  var APP_FEATURES = '拍照入库、条码扫码、二维码生成、效期提醒、用药余量、去向闭环、浪费账单、数据保险箱、批量编辑、效期总览、拼音搜索、位置管理、家庭成员、备份导入导出、启动密码、离线授权';
+  var APP_STORE = '照片原图存本机数据库（IndexedDB），质量不降、数量无上限；数据仅存本机、不联网。卸载或清数据会清空，请定期导出备份。';
+  var APP_DIFF = '功能完整，个人长期使用；备份格式兼容旧版应用，可直接导入旧备份继续管理。';
 
   function showAbout(){
     var overlay = document.createElement('div');
     overlay.id = 'about-modal';
+    var _chips = String(APP_FEATURES || '').split('、').filter(function(s){ return s; }).map(function(s){ return '<span class="ab-chip">' + s + '</span>'; }).join('');
     overlay.innerHTML =
       '<div class="lic-mask"></div>' +
       '<div class="lic-box">' +
-        '<div class="lic-title">关于本软件</div>' +
+        '<div class="ab-head"><div class="lic-title">关于本软件</div><div class="ab-ver">V' + APP_VERSION + '</div></div>' +
         '<div class="about-body">' +
-          '<div class="about-ver">收纳管理 版本号 <span class="about-ver-num">V' + APP_VERSION + '</span></div>' +
           '<div class="about-intro">' + APP_INTRO + '</div>' +
           '<div class="about-sec-title">主要功能</div>' +
-          '<div class="about-text">' + APP_FEATURES + '</div>' +
+          '<div class="ab-chips">' + _chips + '</div>' +
           '<div class="about-sec-title">数据与存储</div>' +
           '<div class="about-text">' + APP_STORE + '</div>' +
-          '<div class="about-sec-title">与另一版本的区别</div>' +
+          '<div class="about-sec-title">版本说明</div>' +
           '<div class="about-text">' + APP_DIFF + '</div>' +
-          '<div class="about-date">' + APP_DATE + '</div>' +
         '</div>' +
+        '<div class="about-date">更新日期 ' + APP_DATE + '</div>' +
         '<div class="lic-btns"><button class="about-ok" id="about-close">知道了</button></div>' +
       '</div>';
     document.body.appendChild(overlay);
     var style = document.createElement('style');
-    style.textContent = '#about-modal .lic-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000}#about-modal .lic-box{position:fixed;z-index:10001;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,400px);background:#fff;border-radius:16px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}#about-modal .lic-title{font-size:18px;font-weight:700}#about-modal .about-body{margin:14px 0 6px;color:#4b5563;font-size:14px;line-height:1.9}#about-modal .about-ver{font-size:13px;color:#6b7688}#about-modal .about-ver-num{color:#0f172a;font-weight:700;font-family:monospace}#about-modal .about-text{font-size:14px;margin-top:10px;color:#374151}#about-modal .about-date{font-size:12.5px;color:#9aa3b2;margin-top:10px}#about-modal .about-ok{width:100%;padding:11px 0;border:1px solid #e6eaf2;border-radius:10px;background:#fff;color:#3b4252;font-size:15px;cursor:pointer}.about-intro{font-size:14px;margin-top:12px;color:#374151;line-height:1.8}.about-sec-title{font-size:12.5px;font-weight:700;color:#0f172a;margin-top:12px;text-align:left;border-left:3px solid #2563eb;padding-left:6px}.about-text{font-size:13.5px;text-align:left;color:#4b5563;margin-top:6px;line-height:1.7}';
+    style.textContent = '#about-modal .lic-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:10000}' +
+      '#about-modal .lic-box{position:fixed;z-index:10001;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,400px);max-height:88vh;overflow-y:auto;background:#fff;border-radius:16px;padding:18px 18px 14px;box-shadow:0 20px 60px rgba(0,0,0,.25);text-align:center}' +
+      '#about-modal .ab-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}' +
+      '#about-modal .lic-title{font-size:17px;font-weight:700;color:#0f172a}' +
+      '#about-modal .ab-ver{font-size:12.5px;font-weight:700;color:#6b7688;font-family:Consolas,monospace}' +
+      '#about-modal .about-body{margin:10px 0 2px}' +
+      '#about-modal .about-intro{font-size:13px;color:#374151;line-height:1.7;text-align:left}' +
+      '#about-modal .about-sec-title{font-size:12.5px;font-weight:700;color:#0f172a;margin-top:12px;text-align:left;border-left:3px solid #5F7F5A;padding-left:6px;line-height:1.3}' +
+      '#about-modal .about-text{font-size:13px;text-align:left;color:#4b5563;margin-top:6px;line-height:1.7}' +
+      '#about-modal .ab-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}' +
+      '#about-modal .ab-chip{font-size:12px;color:#3f4d3c;background:#f2f6f0;border:1px solid #e2ebe0;border-radius:999px;padding:3px 9px;line-height:1.5}' +
+      '#about-modal .about-date{font-size:12px;color:#9aa3b2;margin-top:10px}' +
+      '#about-modal .about-ok{width:100%;padding:11px 0;border:1px solid #e6eaf2;border-radius:10px;background:#fff;color:#3b4252;font-size:15px;cursor:pointer}';
     document.head.appendChild(style);
     overlay.querySelector('#about-close').addEventListener('click', function(){ overlay.remove(); });
     overlay.querySelector('.lic-mask').addEventListener('click', function(){ overlay.remove(); });
